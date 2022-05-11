@@ -20,7 +20,7 @@ export const nest = <
   Action extends Record<BaseKey, unknown> = Record<BaseKey, unknown>
 >() => {
   type Ctx = Context<Ext>;
-  type Resp = { body: Response | undefined };
+  type Resp = Response | undefined;
   type Middleware = (ctx: Ctx, next: () => Promise<void>) => Promise<void>;
 
   const { on, off, emit } = emitter<Action & ErrorAction>();
@@ -31,40 +31,40 @@ export const nest = <
     middlers.push(middleware);
   };
 
-  const dispatch = (ctx: Ctx, resp: Resp, i: number): Promise<void> => {
+  const dispatch = (ctx: Ctx, i: number): Promise<void> => {
     let done = false;
-    const fn = resp.body ? resolve : middlers[i] ?? resolve;
+    const fn = middlers[i] ?? resolve;
     return fn(ctx, () => {
       if (done) {
         throw new Error("Already called next()");
       }
       done = true;
-      return dispatch(ctx, resp, i + 1);
+      return dispatch(ctx, i + 1);
     });
   };
 
-  const call = either(async (ctx: Ctx, resp: Resp) => {
-    await dispatch(ctx, resp, 0);
+  const call = either(async (ctx: Ctx) => {
+    await dispatch(ctx, 0);
   });
 
   const callback = async (request: Request): Promise<Response> => {
-    const resp: Resp = { body: undefined };
+    let resp: Resp;
     const { url } = request;
 
     const ctx: Ctx = Object.freeze({
       request,
       url: new URL(url),
       response: (body, init) => {
-        if (resp.body) {
+        if (resp) {
           console.warn("Response reassigned!", body, init);
           return;
         }
-        resp.body = new Response(body, init);
+        resp = new Response(body, init);
       },
       ext: {} as Ext,
     });
 
-    const [e] = await call(ctx, resp);
+    const [e] = await call(ctx);
 
     if (e) {
       emit(
@@ -75,11 +75,11 @@ export const nest = <
       return new Response("Internal error", { status: 500 });
     }
 
-    if (!resp.body) {
+    if (!resp) {
       return new Response("No Response", { status: 500 });
     }
 
-    return resp.body;
+    return resp;
   };
 
   return {
