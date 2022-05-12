@@ -25,3 +25,9 @@ deno bundle src/main.ts app.js
 ```bash
 deno run --allow-net=0.0.0.0:7070 app.js
 ```
+
+### Update Module
+
+```bash
+deno cache --reload my_module.ts
+```
