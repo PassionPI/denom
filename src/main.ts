@@ -6,10 +6,11 @@ import { nest } from "./utils/nest.ts";
 
 const serverConfig = defaultServerConfig();
 
+const { server } = createServer(serverConfig);
 const { on, use, callback } = nest<{ a: 1 }>();
 
-on("error", ({ e, request }) => {
-  console.log("Error!", "\n", request.url, "\n", e);
+on("error", ({ err, request }) => {
+  console.log("Error!", "\n", request.url, "\n", err);
 });
 
 use(async ({ url }, next) => {
@@ -21,27 +22,28 @@ use(async ({ url }, next) => {
 
 use(async ({ request, response, url }) => {
   const { method } = request;
-  const { pathname, search } = url;
+  const { search, pathname } = url;
 
   const [err, data] = await jsonData<{ a: 1 }>(request);
+
   if (err) {
-    return response(...ERR_RESPONSE_JSON_PARSE());
+    return response(ERR_RESPONSE_JSON_PARSE());
   }
 
   response(
-    JSON.stringify(
-      {
-        method,
-        pathname: pathname.split("/").slice(1),
-        search,
-        data,
-      },
-      null,
-      4
+    new Response(
+      JSON.stringify(
+        {
+          method,
+          pathname: pathname.split("/"),
+          search,
+          data,
+        },
+        null,
+        4
+      )
     )
   );
 });
 
-const { server } = createServer(serverConfig);
-
-server(callback);
+await server(callback);

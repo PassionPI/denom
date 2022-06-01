@@ -1,19 +1,19 @@
 import type { BaseKey } from "../common/types.ts";
+import { ERR_RESPONSE_NO_RESPONSE } from "../error/response.ts";
 import { either } from "../lib/fp_async.ts";
 import { emitter } from "./emitter.ts";
+import { shuttle } from "./shuttle.ts";
 
 export interface Context<T extends Record<string, unknown>> {
   url: URL;
   ext: Partial<T>;
   request: Request;
-  response: (body: BodyInit, init?: ResponseInit) => void;
+  response: (resp: Response) => void;
 }
 
 export type ErrorAction = {
-  error: { e: Error; url: URL; request: Request };
+  error: { err: Error; request: Request };
 };
-
-const resolve = () => Promise.resolve();
 
 export const nest = <
   Ext extends Record<string, unknown> = Record<string, unknown>,
@@ -31,20 +31,10 @@ export const nest = <
     middlers.push(middleware);
   };
 
-  const dispatch = (ctx: Ctx, i: number): Promise<void> => {
-    let done = false;
-    const fn = middlers[i] ?? resolve;
-    return fn(ctx, () => {
-      if (done) {
-        throw new Error("Already called next()");
-      }
-      done = true;
-      return dispatch(ctx, i + 1);
-    });
-  };
+  const go = shuttle(middlers);
 
   const call = either(async (ctx: Ctx) => {
-    await dispatch(ctx, 0);
+    await go(ctx);
   });
 
   const callback = async (request: Request): Promise<Response> => {
@@ -54,29 +44,34 @@ export const nest = <
     const ctx: Ctx = Object.freeze({
       request,
       url: new URL(url),
-      response: (body, init) => {
+      response: (res) => {
         if (resp) {
-          console.warn("Response reassigned!", body, init);
+          console.warn("Response reassigned!", resp);
           return;
         }
-        resp = new Response(body, init);
+        resp = res;
       },
       ext: {} as Ext,
     });
 
-    const [e] = await call(ctx);
+    const [err] = await call(ctx);
 
-    if (e) {
+    if (err) {
       emit(
         "error",
         // deno-lint-ignore no-explicit-any
-        { request, e } as ErrorAction["error"] as any
+        { request, err } as ErrorAction["error"] as any
       );
-      return new Response("Internal error", { status: 500 });
+      return new Response(
+        JSON.stringify({
+          message: `Internal error: ${err.message}`,
+        }),
+        { status: 500 }
+      );
     }
 
     if (!resp) {
-      return new Response("No Response", { status: 500 });
+      return ERR_RESPONSE_NO_RESPONSE();
     }
 
     return resp;
